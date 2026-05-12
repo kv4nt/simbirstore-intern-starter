@@ -23,7 +23,7 @@
     </div>
 
     <div class="docs-body">
-      <!-- Сайдбар с навигацией по тегам -->
+      <!-- Сайдбар -->
       <aside class="docs-sidebar">
         <div class="docs-sidebar-section">
           <div class="docs-sidebar-title">Разделы</div>
@@ -47,7 +47,7 @@
             </div>
             <div class="docs-qs-step">
               <span class="docs-qs-num">2</span>
-              <span>Добавь заголовок <code>Authorization: Bearer &lt;token&gt;</code></span>
+              <span>Добавь заголовок <code>Authorization: Bearer &lt;access_token&gt;</code></span>
             </div>
             <div class="docs-qs-step">
               <span class="docs-qs-num">3</span>
@@ -58,7 +58,21 @@
 
         <div class="docs-sidebar-section">
           <div class="docs-sidebar-title">Базовый URL</div>
-          <code class="docs-base-url">http://localhost:5173/api</code>
+          <code class="docs-base-url">http://localhost:5173/api/v1</code>
+        </div>
+
+        <div class="docs-sidebar-section">
+          <div class="docs-sidebar-title">Роли</div>
+          <div class="docs-roles">
+            <div class="docs-role-row">
+              <code class="docs-role-badge employee">employee</code>
+              <span>По умолчанию при регистрации</span>
+            </div>
+            <div class="docs-role-row">
+              <code class="docs-role-badge admin">admin</code>
+              <span>Назначается вручную в БД</span>
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -73,7 +87,7 @@
             <p class="docs-intro-desc">
               REST API для корпоративного магазина SimbirSoft.
               Используй JWT-токен для авторизации. Роль <code>admin</code> открывает управление
-              пользователями, товарами и начислением монет.
+              пользователями, товарами и начислением монет. По умолчанию все пользователи получают роль <code>employee</code>.
             </p>
           </div>
           <div class="docs-auth-block">
@@ -82,7 +96,9 @@
               <span class="docs-code-comment"># Получить токен</span><br>
               <span class="docs-code-method post">POST</span> /auth/login<br><br>
               <span class="docs-code-comment"># Использовать в запросах</span><br>
-              Authorization: Bearer &lt;token&gt;
+              Authorization: Bearer &lt;access_token&gt;<br><br>
+              <span class="docs-code-comment"># Обновить токен</span><br>
+              <span class="docs-code-method post">POST</span> /auth/refresh
             </div>
           </div>
         </div>
@@ -187,11 +203,13 @@ const router = useRouter()
 const activeTag = ref('Auth')
 
 const errorCodes = [
+  { code: 'bad_request',          http: 400, desc: 'Невалидное тело запроса или параметры' },
   { code: 'unauthorized',         http: 401, desc: 'Не передан или невалидный JWT токен' },
+  { code: 'insufficient_balance', http: 402, desc: 'Недостаточно монет на балансе' },
   { code: 'forbidden',            http: 403, desc: 'Нет прав доступа (нужна роль admin)' },
   { code: 'not_found',            http: 404, desc: 'Ресурс не найден' },
-  { code: 'insufficient_balance', http: 402, desc: 'Недостаточно монет на балансе пользователя' },
-  { code: 'validation_error',     http: 400, desc: 'Ошибка валидации тела запроса' },
+  { code: 'conflict',             http: 409, desc: 'Нарушение уникальности (дубликат email, code и т.д.)' },
+  { code: 'internal_error',       http: 500, desc: 'Внутренняя ошибка сервера — смотри логи Go' },
 ]
 
 function slugify(s) { return s.toLowerCase().replace(/[^a-zа-яё0-9]/gi, '-') }
@@ -215,18 +233,92 @@ const tags = ref([
     endpoints: [
       {
         method: 'POST', path: '/auth/register', summary: 'Регистрация нового пользователя', _open: false,
-        body: JSON.stringify({ email: 'ivan@simbirsoft.com', password: 'secret123', full_name: 'Иван Иванов', office: 'Ульяновск' }, null, 2),
+        description: 'Роль по умолчанию — employee. Поле office необязательно.',
+        body: JSON.stringify({ email: 'ivan@simbirsoft.com', password: 'secret123', full_name: 'Иван Иванов', office: 'Казань' }, null, 2),
         responses: [
-          { code: 201, desc: 'Пользователь создан', example: JSON.stringify({ token: 'eyJ...', user: { id: 1, full_name: 'Иван Иванов', email: 'ivan@simbirsoft.com', role: 'user', coin_balance: 0 } }, null, 2) },
+          { code: 201, desc: 'Пользователь создан', example: JSON.stringify({
+            access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+            refresh_token: 'dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4...',
+            user: { id: 5, full_name: 'Иван Иванов', email: 'ivan@simbirsoft.com', role: 'employee', coin_balance: 0, office: 'Казань' }
+          }, null, 2) },
           { code: 409, desc: 'Email уже занят', example: JSON.stringify({ error: 'email_taken' }, null, 2) },
+          { code: 400, desc: 'Невалидные поля', example: JSON.stringify({ error: 'bad_request', details: 'password: min length 6' }, null, 2) },
         ]
       },
       {
-        method: 'POST', path: '/auth/login', summary: 'Вход — получить JWT токен', _open: false,
-        body: JSON.stringify({ email: 'ivan@simbirsoft.com', password: 'secret123' }, null, 2),
+        method: 'POST', path: '/auth/login', summary: 'Вход — получить пару JWT токенов', _open: false,
+        body: JSON.stringify({ email: 'admin@simbirsoft.com', password: 'admin123' }, null, 2),
         responses: [
-          { code: 200, desc: 'Токен выдан', example: JSON.stringify({ token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...', user: { id: 1, full_name: 'Иван Иванов', role: 'user', coin_balance: 1500 } }, null, 2) },
+          { code: 200, desc: 'Токены выданы', example: JSON.stringify({
+            access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+            refresh_token: 'dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4...',
+            user: { id: 1, full_name: 'Алексей Тимлид', email: 'admin@simbirsoft.com', role: 'admin', coin_balance: 0, office: 'Ульяновск' }
+          }, null, 2) },
           { code: 401, desc: 'Неверный email или пароль', example: JSON.stringify({ error: 'unauthorized' }, null, 2) },
+        ]
+      },
+      {
+        method: 'POST', path: '/auth/refresh', summary: 'Обновить пару токенов', _open: false,
+        description: 'Старый refresh_token становится недействительным (ротация).',
+        body: JSON.stringify({ refresh_token: 'dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4...' }, null, 2),
+        responses: [
+          { code: 200, desc: 'Новые токены', example: JSON.stringify({
+            access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+            refresh_token: 'bmV3IHJlZnJlc2ggdG9rZW4...'
+          }, null, 2) },
+          { code: 401, desc: 'Токен просрочен или не найден в БД' },
+        ]
+      },
+      {
+        method: 'POST', path: '/auth/logout', summary: 'Выход из системы', _open: false,
+        description: 'Требует: Authorization: Bearer <access_token>',
+        responses: [
+          { code: 200, desc: 'Успешно', example: JSON.stringify({ ok: true }, null, 2) },
+        ]
+      },
+    ]
+  },
+  {
+    name: 'Catalog', icon: '🛍️', auth: false, adminOnly: false,
+    endpoints: [
+      {
+        method: 'GET', path: '/categories', summary: 'Список всех категорий', _open: false,
+        description: 'При пустой таблице возвращает { "items": [] }, никогда не null.',
+        responses: [
+          { code: 200, desc: 'Список категорий', example: JSON.stringify({
+            items: [{ id: 1, name: 'Одежда', code: 'clothes', icon: '👕', description: 'Футболки, худи, кепки' }]
+          }, null, 2) },
+        ]
+      },
+      {
+        method: 'GET', path: '/products', summary: 'Список товаров с фильтрацией и пагинацией', _open: false,
+        description: 'Неактивные товары (is_active = false) не попадают в выдачу.',
+        params: [
+          { name: 'category', in: 'query', type: 'string',  required: false, desc: 'Фильтр по code категории (например "clothes")' },
+          { name: 'search',   in: 'query', type: 'string',  required: false, desc: 'Поиск по названию (без учёта регистра)' },
+          { name: 'limit',    in: 'query', type: 'integer', required: false, desc: 'Размер страницы (макс. 100, по умолч. 20)' },
+          { name: 'offset',   in: 'query', type: 'integer', required: false, desc: 'Сдвиг для пагинации' },
+        ],
+        responses: [
+          { code: 200, desc: 'Список товаров', example: JSON.stringify({
+            items: [{
+              id: 7, name: 'Футболка SimbirSoft', description: '100% хлопок',
+              category_id: 1, category_name: 'Одежда', category_code: 'clothes',
+              price_coins: 300, has_variants: true, image_url: 'https://example.com/tshirt.jpg',
+              variants: [{ id: 1, size: 'S', color: 'белый', sku: 'TSHIRT-S-WHT', price_coins: null, in_stock: true }]
+            }]
+          }, null, 2) },
+        ]
+      },
+      {
+        method: 'GET', path: '/products/{id}', summary: 'Один товар по ID', _open: false,
+        params: [{ name: 'id', in: 'path', type: 'integer', required: true, desc: 'ID товара' }],
+        responses: [
+          { code: 200, desc: 'Товар с вариантами', example: JSON.stringify({
+            id: 7, name: 'Футболка SimbirSoft', price_coins: 300, has_variants: true,
+            variants: [{ id: 1, size: 'S', color: 'белый', sku: 'TSHIRT-S-WHT', price_coins: null, in_stock: true }]
+          }, null, 2) },
+          { code: 404, desc: 'Товар не найден или неактивен' },
         ]
       },
     ]
@@ -235,60 +327,31 @@ const tags = ref([
     name: 'Profile', icon: '👤', auth: true, adminOnly: false,
     endpoints: [
       {
-        method: 'GET', path: '/me', summary: 'Профиль текущего пользователя', _open: false,
+        method: 'GET', path: '/me', summary: 'Данные текущего пользователя', _open: false,
         responses: [
-          { code: 200, desc: 'Данные профиля', example: JSON.stringify({ id: 5, full_name: 'Иван Иванов', email: 'ivan@simbirsoft.com', role: 'user', coin_balance: 1500, office: 'Ульяновск' }, null, 2) },
+          { code: 200, desc: 'Профиль', example: JSON.stringify({ id: 5, full_name: 'Иван Иванов', email: 'ivan@simbirsoft.com', role: 'employee', coin_balance: 1500, office: 'Казань' }, null, 2) },
           { code: 401, desc: 'Требуется авторизация' },
         ]
       },
       {
-        method: 'GET', path: '/me/transactions', summary: 'История монет текущего пользователя', _open: false,
-        params: [
-          { name: 'limit',  in: 'query', type: 'integer', required: false, desc: 'Кол-во записей (макс. 100, по умолч. 50)' },
-          { name: 'offset', in: 'query', type: 'integer', required: false, desc: 'Смещение для пагинации' },
-        ],
+        method: 'GET', path: '/me/coins', summary: 'История монетных транзакций', _open: false,
+        description: 'type: "manual" — начисление от администратора (amount > 0). type: "order" — списание при заказе (amount < 0).',
         responses: [
-          { code: 200, desc: 'Список транзакций', example: JSON.stringify([
-            { id: 31, amount: 1000, comment: 'Победитель хакатона Q2', balance: 2500, admin_name: 'Алексей Тимлид', created_at: '2025-06-01T12:00:00Z' },
-            { id: 28, amount: -200, comment: 'Корректировка', balance: 1500, admin_name: 'Алексей Тимлид', created_at: '2025-05-15T09:30:00Z' },
-          ], null, 2) },
+          { code: 200, desc: 'История транзакций', example: JSON.stringify({
+            items: [
+              { id: 1, type: 'manual', amount: 500, balance: 500, comment: 'Начальный бонус', admin_name: 'Алексей Тимлид', order_id: null, created_at: '2024-01-15T10:30:00Z' },
+              { id: 2, type: 'order', amount: -300, balance: 200, comment: null, admin_name: null, order_id: 42, created_at: '2024-01-16T14:00:00Z' }
+            ]
+          }, null, 2) },
           { code: 401, desc: 'Требуется авторизация' },
         ]
       },
-    ]
-  },
-  {
-    name: 'Products', icon: '🛋️', auth: false, adminOnly: false,
-    endpoints: [
       {
-        method: 'GET', path: '/products', summary: 'Список товаров каталога', _open: false,
-        params: [
-          { name: 'category', in: 'query', type: 'string',  required: false, desc: 'Фильтр по коду категории (например "clothes")' },
-          { name: 'search',   in: 'query', type: 'string',  required: false, desc: 'Поиск по названию' },
-          { name: 'limit',    in: 'query', type: 'integer', required: false, desc: 'По умолчанию 20' },
-          { name: 'offset',   in: 'query', type: 'integer', required: false, desc: 'Смещение' },
-        ],
+        method: 'GET', path: '/me/stats', summary: 'Агрегированная статистика профиля', _open: false,
+        description: 'Все поля — числа, никогда не null. При отсутствии данных — 0.',
         responses: [
-          { code: 200, desc: 'Массив товаров', example: JSON.stringify([{ id: 1, name: 'Толстовка SimbirSoft', price_coins: 500, category_name: 'Одежда', category_code: 'clothes', has_variants: true }], null, 2) },
-        ]
-      },
-      {
-        method: 'GET', path: '/products/:id', summary: 'Получить товар по ID', _open: false,
-        params: [{ name: 'id', in: 'path', type: 'integer', required: true, desc: 'ID товара' }],
-        responses: [
-          { code: 200, desc: 'Товар', example: JSON.stringify({ id: 42, name: 'Толстовка SimbirSoft', price_coins: 500, category_id: 1, has_variants: true }, null, 2) },
-          { code: 404, desc: 'Товар не найден' },
-        ]
-      },
-    ]
-  },
-  {
-    name: 'Categories', icon: '🏷️', auth: false, adminOnly: false,
-    endpoints: [
-      {
-        method: 'GET', path: '/categories', summary: 'Список всех категорий', _open: false,
-        responses: [
-          { code: 200, desc: 'Массив категорий', example: JSON.stringify([{ id: 1, name: 'Одежда', code: 'clothes' }, { id: 2, name: 'Канцелярия', code: 'stationery' }], null, 2) },
+          { code: 200, desc: 'Статистика', example: JSON.stringify({ orders_count: 5, coins_spent: 2500, coins_earned: 3000 }, null, 2) },
+          { code: 401, desc: 'Требуется авторизация' },
         ]
       },
     ]
@@ -297,36 +360,38 @@ const tags = ref([
     name: 'Cart', icon: '🛒', auth: true, adminOnly: false,
     endpoints: [
       {
-        method: 'GET', path: '/cart', summary: 'Получить корзину', _open: false,
-        responses: [{ code: 200, desc: 'Корзина', example: JSON.stringify({ items: [{ product_id: 1, product_name: 'Толстовка', price_coins: 500, quantity: 2 }], total_coins: 1000 }, null, 2) }]
+        method: 'GET', path: '/cart', summary: 'Текущая корзина пользователя', _open: false,
+        description: 'Корзина создаётся автоматически при первом обращении. Пустая корзина: { "items": [], "total_coins": 0 }',
+        responses: [
+          { code: 200, desc: 'Корзина', example: JSON.stringify({
+            items: [{ id: 1, product_id: 7, product_name: 'Футболка SimbirSoft', variant_id: 2, variant_label: 'M / белый', price_coins: 300, quantity: 2 }],
+            total_coins: 600
+          }, null, 2) }
+        ]
       },
       {
         method: 'POST', path: '/cart/items', summary: 'Добавить товар в корзину', _open: false,
-        body: JSON.stringify({ product_id: 42, quantity: 1 }, null, 2),
+        description: 'Если товар с таким product_id + variant_id уже есть — quantity увеличивается. Если has_variants = true и variant_id не передан — 400.',
+        body: JSON.stringify({ product_id: 7, variant_id: 2, quantity: 1 }, null, 2),
         responses: [
-          { code: 200, desc: 'Обновлённая корзина' },
+          { code: 200, desc: 'Обновлённая корзина (структура как GET /cart)' },
+          { code: 400, desc: 'Не передан variant_id для товара с вариантами' },
           { code: 404, desc: 'Товар не найден' },
         ]
       },
       {
-        method: 'PUT', path: '/cart/items/:product_id', summary: 'Изменить количество', _open: false,
-        params: [{ name: 'product_id', in: 'path', type: 'integer', required: true, desc: 'ID товара в корзине' }],
+        method: 'PATCH', path: '/cart/items/{itemId}', summary: 'Изменить количество позиции', _open: false,
+        params: [{ name: 'itemId', in: 'path', type: 'integer', required: true, desc: 'ID позиции корзины (cart item id, не product_id)' }],
         body: JSON.stringify({ quantity: 3 }, null, 2),
-        responses: [{ code: 200, desc: 'Обновлённая корзина' }]
-      },
-      {
-        method: 'DELETE', path: '/cart/items/:product_id', summary: 'Удалить товар из корзины', _open: false,
-        params: [{ name: 'product_id', in: 'path', type: 'integer', required: true, desc: 'ID товара' }],
-        responses: [{ code: 200, desc: 'Обновлённая корзина' }]
-      },
-      {
-        method: 'POST', path: '/cart/checkout', summary: 'Оформить заказ (списать монеты)', _open: false,
-        description: 'Создаёт заказ из текущей корзины. Монеты списываются атомарно вместе с созданием заказа.',
         responses: [
-          { code: 201, desc: 'Заказ создан', example: JSON.stringify({ id: 101, status: 'pending', total_coins: 1000, created_at: '2025-06-01T12:00:00Z' }, null, 2) },
-          { code: 402, desc: 'Недостаточно монет', example: JSON.stringify({ error: 'insufficient_balance' }, null, 2) },
-          { code: 422, desc: 'Корзина пустая' },
+          { code: 200, desc: 'Обновлённая корзина' },
+          { code: 404, desc: 'Позиция не найдена или принадлежит другому пользователю' },
         ]
+      },
+      {
+        method: 'DELETE', path: '/cart/items/{itemId}', summary: 'Удалить позицию из корзины', _open: false,
+        params: [{ name: 'itemId', in: 'path', type: 'integer', required: true, desc: 'ID позиции корзины' }],
+        responses: [{ code: 200, desc: 'Обновлённая корзина' }]
       },
     ]
   },
@@ -334,15 +399,35 @@ const tags = ref([
     name: 'Orders', icon: '📦', auth: true, adminOnly: false,
     endpoints: [
       {
-        method: 'GET', path: '/orders', summary: 'История заказов текущего пользователя', _open: false,
-        responses: [{ code: 200, desc: 'Массив заказов', example: JSON.stringify([{ id: 101, status: 'pending', total_coins: 1000, created_at: '2025-06-01T12:00:00Z' }], null, 2) }]
+        method: 'POST', path: '/orders/checkout', summary: 'Оформить заказ из корзины', _open: false,
+        description: 'После успешного оформления: корзина очищается, баланс списывается, запись в coin_transactions создаётся.',
+        body: JSON.stringify({}, null, 2),
+        responses: [
+          { code: 201, desc: 'Заказ создан', example: JSON.stringify({
+            id: 42, status: 'new', total_coins: 600, created_at: '2024-01-16T14:00:00Z',
+            items: [{ product_id: 7, product_name: 'Футболка SimbirSoft', quantity: 2, price_coins: 300 }]
+          }, null, 2) },
+          { code: 400, desc: 'Корзина пуста', example: JSON.stringify({ error: 'bad_request' }, null, 2) },
+          { code: 402, desc: 'Недостаточно монет', example: JSON.stringify({ error: 'insufficient_balance' }, null, 2) },
+        ]
       },
       {
-        method: 'GET', path: '/orders/:id', summary: 'Получить заказ с позициями', _open: false,
+        method: 'GET', path: '/orders', summary: 'История заказов текущего пользователя', _open: false,
+        responses: [
+          { code: 200, desc: 'Список заказов', example: JSON.stringify({
+            items: [{ id: 42, status: 'completed', total_coins: 600, created_at: '2024-01-16T14:00:00Z' }]
+          }, null, 2) }
+        ]
+      },
+      {
+        method: 'GET', path: '/orders/{id}', summary: 'Заказ с позициями', _open: false,
         params: [{ name: 'id', in: 'path', type: 'integer', required: true, desc: 'ID заказа' }],
         responses: [
-          { code: 200, desc: 'Заказ с позициями', example: JSON.stringify({ id: 101, status: 'pending', total_coins: 1000, items: [{ product_id: 1, product_name: 'Толстовка', price_coins: 500, quantity: 2 }] }, null, 2) },
-          { code: 404, desc: 'Заказ не найден' },
+          { code: 200, desc: 'Полный заказ', example: JSON.stringify({
+            id: 42, status: 'completed', total_coins: 600, created_at: '2024-01-16T14:00:00Z',
+            items: [{ product_id: 7, product_name: 'Футболка SimbirSoft', quantity: 2, price_coins: 300 }]
+          }, null, 2) },
+          { code: 404, desc: 'Заказ не найден или принадлежит другому пользователю' },
         ]
       },
     ]
@@ -352,19 +437,36 @@ const tags = ref([
     endpoints: [
       {
         method: 'GET', path: '/admin/orders', summary: 'Все заказы всех пользователей', _open: false,
+        params: [
+          { name: 'status', in: 'query', type: 'string', required: false, desc: 'Фильтр: new | pending | confirmed | ready | done | completed | cancelled' },
+        ],
         responses: [
-          { code: 200, desc: 'Массив заказов с именами сотрудников', example: JSON.stringify([{ id: 101, user_id: 5, user_name: 'Иван Иванов', status: 'pending', total_coins: 1000, created_at: '2025-06-01T12:00:00Z' }], null, 2) },
+          { code: 200, desc: 'Список заказов', example: JSON.stringify({
+            items: [{ id: 42, status: 'new', total_coins: 600, created_at: '2024-01-16T14:00:00Z', user_id: 5, user_name: 'Иван Иванов' }]
+          }, null, 2) },
           { code: 403, desc: 'Нет прав доступа' },
         ]
       },
       {
-        method: 'PATCH', path: '/admin/orders/:id/status', summary: 'Изменить статус заказа', _open: false,
-        description: 'Допустимые переходы: pending→confirmed|cancelled, confirmed→ready|cancelled, ready→done',
+        method: 'GET', path: '/admin/orders/{id}/items', summary: 'Состав заказа', _open: false,
+        description: 'color и size — всегда строка. Если варианта нет — пустая строка "", не null.',
+        params: [{ name: 'id', in: 'path', type: 'integer', required: true, desc: 'ID заказа' }],
+        responses: [
+          { code: 200, desc: 'Состав заказа', example: JSON.stringify({
+            order_id: 42, total_coins: 600,
+            items: [{ item_id: 1, product_id: 7, product_name: 'Футболка SimbirSoft', image_url: 'https://example.com/tshirt.jpg', color: 'белый', size: 'M', quantity: 2, price_coins: 300 }]
+          }, null, 2) },
+          { code: 404, desc: 'Заказ не найден' },
+        ]
+      },
+      {
+        method: 'PATCH', path: '/admin/orders/{id}/status', summary: 'Изменить статус заказа', _open: false,
         params: [{ name: 'id', in: 'path', type: 'integer', required: true, desc: 'ID заказа' }],
         body: JSON.stringify({ status: 'confirmed' }, null, 2),
         responses: [
-          { code: 200, desc: 'Статус обновлён', example: JSON.stringify({ ok: true }, null, 2) },
-          { code: 422, desc: 'Недопустимый переход статуса', example: JSON.stringify({ error: 'invalid_transition' }, null, 2) },
+          { code: 200, desc: 'Статус обновлён', example: JSON.stringify({ order_id: 42, new_status: 'confirmed' }, null, 2) },
+          { code: 400, desc: 'Недопустимое значение статуса' },
+          { code: 404, desc: 'Заказ не найден' },
           { code: 403, desc: 'Нет прав доступа' },
         ]
       },
@@ -375,28 +477,55 @@ const tags = ref([
     endpoints: [
       {
         method: 'POST', path: '/admin/products', summary: 'Создать товар', _open: false,
-        body: JSON.stringify({ name: 'Толстовка SimbirSoft', description: 'Мягкая толстовка', category_id: 1, price_coins: 500, has_variants: true }, null, 2),
+        body: JSON.stringify({ name: 'Худи SimbirSoft', category_id: 1, price_coins: 800, description: 'Тёплое худи', has_variants: false, is_active: true, image_url: null }, null, 2),
         responses: [
-          { code: 201, desc: 'Товар создан', example: JSON.stringify({ id: 42 }, null, 2) },
+          { code: 201, desc: 'Товар создан', example: JSON.stringify({ id: 10 }, null, 2) },
           { code: 403, desc: 'Нет прав' },
         ]
       },
       {
-        method: 'PUT', path: '/admin/products/:id', summary: 'Обновить товар', _open: false,
+        method: 'PUT', path: '/admin/products/{id}', summary: 'Обновить товар', _open: false,
         params: [{ name: 'id', in: 'path', type: 'integer', required: true, desc: 'ID товара' }],
-        body: JSON.stringify({ name: 'Новое название', price_coins: 600, category_id: 1, has_variants: false }, null, 2),
+        body: JSON.stringify({ name: 'Худи SimbirSoft v2', category_id: 1, price_coins: 900, description: 'Обновлённое', has_variants: false, is_active: true, image_url: null }, null, 2),
         responses: [
-          { code: 200, desc: 'Обновлено', example: JSON.stringify({ ok: true }, null, 2) },
-          { code: 404, desc: 'Не найден' },
+          { code: 200, desc: 'Обновлено', example: JSON.stringify({ id: 10 }, null, 2) },
+          { code: 404, desc: 'Товар не найден' },
         ]
       },
       {
-        method: 'DELETE', path: '/admin/products/:id', summary: 'Удалить товар', _open: false,
+        method: 'DELETE', path: '/admin/products/{id}', summary: 'Удалить товар (soft-delete)', _open: false,
+        description: 'Товар не удаляется из БД — устанавливается флаг is_active = false. Он исчезает из каталога.',
         params: [{ name: 'id', in: 'path', type: 'integer', required: true, desc: 'ID товара' }],
         responses: [
-          { code: 200, desc: 'Удалено', example: JSON.stringify({ ok: true }, null, 2) },
-          { code: 404, desc: 'Не найден' },
+          { code: 200, desc: 'Деактивировано', example: JSON.stringify({ deleted: 10 }, null, 2) },
+          { code: 404, desc: 'Товар не найден' },
         ]
+      },
+      {
+        method: 'POST', path: '/admin/products/{id}/variants', summary: 'Добавить вариант к товару', _open: false,
+        description: 'Добавление первого варианта автоматически ставит has_variants = true на товаре.',
+        params: [{ name: 'id', in: 'path', type: 'integer', required: true, desc: 'ID товара' }],
+        body: JSON.stringify({ size: 'XL', color: 'чёрный', sku: 'HOOD-XL-BLK', price_coins: null, in_stock: true }, null, 2),
+        responses: [
+          { code: 201, desc: 'Вариант создан', example: JSON.stringify({ id: 5 }, null, 2) },
+        ]
+      },
+      {
+        method: 'PUT', path: '/admin/products/{id}/variants/{variantId}', summary: 'Обновить вариант', _open: false,
+        params: [
+          { name: 'id',        in: 'path', type: 'integer', required: true, desc: 'ID товара' },
+          { name: 'variantId', in: 'path', type: 'integer', required: true, desc: 'ID варианта' },
+        ],
+        responses: [{ code: 200, desc: 'Обновлено', example: JSON.stringify({ ok: true }, null, 2) }]
+      },
+      {
+        method: 'DELETE', path: '/admin/products/{id}/variants/{variantId}', summary: 'Удалить вариант', _open: false,
+        description: 'Удаление последнего варианта автоматически сбрасывает has_variants = false.',
+        params: [
+          { name: 'id',        in: 'path', type: 'integer', required: true, desc: 'ID товара' },
+          { name: 'variantId', in: 'path', type: 'integer', required: true, desc: 'ID варианта' },
+        ],
+        responses: [{ code: 200, desc: 'Удалено', example: JSON.stringify({ ok: true }, null, 2) }]
       },
     ]
   },
@@ -405,19 +534,26 @@ const tags = ref([
     endpoints: [
       {
         method: 'POST', path: '/admin/categories', summary: 'Создать категорию', _open: false,
-        body: JSON.stringify({ name: 'Одежда', code: 'clothes' }, null, 2),
-        responses: [{ code: 201, desc: 'Категория создана', example: JSON.stringify({ id: 3 }, null, 2) }]
+        description: 'code — только [a-z0-9-], уникальный.',
+        body: JSON.stringify({ code: 'books', name: 'Книги', icon: '📚', description: 'Корпоративная литература' }, null, 2),
+        responses: [
+          { code: 201, desc: 'Категория создана', example: JSON.stringify({ id: 3, code: 'books', name: 'Книги', icon: '📚', description: 'Корпоративная литература' }, null, 2) },
+          { code: 409, desc: 'code уже занят', example: JSON.stringify({ error: 'conflict' }, null, 2) },
+        ]
       },
       {
-        method: 'PUT', path: '/admin/categories/:id', summary: 'Обновить категорию', _open: false,
+        method: 'PUT', path: '/admin/categories/{id}', summary: 'Обновить категорию', _open: false,
         params: [{ name: 'id', in: 'path', type: 'integer', required: true, desc: 'ID категории' }],
-        body: JSON.stringify({ name: 'Одежда и обувь', code: 'clothes' }, null, 2),
+        body: JSON.stringify({ code: 'books', name: 'Книги и журналы', icon: '📖', description: 'Обновлено' }, null, 2),
         responses: [{ code: 200, desc: 'Обновлено', example: JSON.stringify({ ok: true }, null, 2) }]
       },
       {
-        method: 'DELETE', path: '/admin/categories/:id', summary: 'Удалить категорию', _open: false,
+        method: 'DELETE', path: '/admin/categories/{id}', summary: 'Удалить категорию', _open: false,
         params: [{ name: 'id', in: 'path', type: 'integer', required: true, desc: 'ID категории' }],
-        responses: [{ code: 200, desc: 'Удалено', example: JSON.stringify({ ok: true }, null, 2) }]
+        responses: [
+          { code: 200, desc: 'Удалено', example: JSON.stringify({ ok: true }, null, 2) },
+          { code: 409, desc: 'К категории привязаны товары', example: JSON.stringify({ error: 'conflict' }, null, 2) },
+        ]
       },
     ]
   },
@@ -427,35 +563,35 @@ const tags = ref([
       {
         method: 'GET', path: '/admin/users', summary: 'Список всех пользователей с балансами', _open: false,
         responses: [
-          { code: 200, desc: 'Массив пользователей', example: JSON.stringify([{ id: 5, full_name: 'Иван Иванов', email: 'ivan@simbirsoft.com', role: 'user', coin_balance: 1500, office: 'Ульяновск' }], null, 2) },
+          { code: 200, desc: 'Список пользователей', example: JSON.stringify({
+            items: [{ id: 5, full_name: 'Иван Иванов', email: 'ivan@simbirsoft.com', role: 'employee', coin_balance: 1500, office: 'Казань' }]
+          }, null, 2) },
           { code: 403, desc: 'Нет прав доступа' },
         ]
       },
       {
         method: 'POST', path: '/admin/users/coins', summary: 'Начислить или списать монеты', _open: false,
-        description: 'Положительный amount — начисление. Отрицательный — списание. Поле reason обязательно (мин. 3 символа). Если баланс уйдёт в минус — вернётся insufficient_balance.',
-        body: JSON.stringify({ user_id: 5, amount: 1000, reason: 'Победитель хакатона Q2 2025' }, null, 2),
+        description: 'amount может быть отрицательным (списание). Баланс не может уйти в минус.',
+        body: JSON.stringify({ user_id: 5, amount: 500, reason: 'Премия за квартал' }, null, 2),
         responses: [
-          { code: 200, desc: 'Операция выполнена', example: JSON.stringify({ ok: true, new_balance: 2500 }, null, 2) },
-          { code: 400, desc: 'Ошибка валидации', example: JSON.stringify({ error: 'validation_error', details: 'reason: min length 3' }, null, 2) },
+          { code: 200, desc: 'Операция выполнена', example: JSON.stringify({ user_id: 5, amount: 500, new_balance: 2000, reason: 'Премия за квартал' }, null, 2) },
+          { code: 400, desc: 'Баланс уйдёт в минус', example: JSON.stringify({ error: 'bad_request' }, null, 2) },
           { code: 402, desc: 'Недостаточно монет', example: JSON.stringify({ error: 'insufficient_balance' }, null, 2) },
           { code: 403, desc: 'Нет прав доступа' },
           { code: 404, desc: 'Пользователь не найден' },
         ]
       },
       {
-        method: 'GET', path: '/admin/users/:id/transactions', summary: 'История монет пользователя', _open: false,
-        description: 'Полная история начислений и списаний. Поле balance — баланс ПОСЛЕ каждой операции.',
-        params: [
-          { name: 'id',     in: 'path',  type: 'integer', required: true,  desc: 'ID пользователя' },
-          { name: 'limit',  in: 'query', type: 'integer', required: false, desc: 'Макс. 200, по умолч. 100' },
-          { name: 'offset', in: 'query', type: 'integer', required: false, desc: 'Смещение' },
-        ],
+        method: 'GET', path: '/admin/users/{id}/transactions', summary: 'История монет пользователя', _open: false,
+        description: 'Та же структура что и GET /me/coins.',
+        params: [{ name: 'id', in: 'path', type: 'integer', required: true, desc: 'ID пользователя' }],
         responses: [
-          { code: 200, desc: 'Список транзакций', example: JSON.stringify([
-            { id: 31, amount: 1000, comment: 'Победитель хакатона Q2 2025', balance: 2500, admin_name: 'Алексей Тимлид', created_at: '2025-06-01T12:00:00Z' },
-            { id: 28, amount: -200, comment: 'Корректировка', balance: 1500, admin_name: 'Алексей Тимлид', created_at: '2025-05-15T09:30:00Z' },
-          ], null, 2) },
+          { code: 200, desc: 'История транзакций', example: JSON.stringify({
+            items: [
+              { id: 31, type: 'manual', amount: 1000, balance: 2500, comment: 'Победитель хакатона', admin_name: 'Алексей Тимлид', order_id: null, created_at: '2025-06-01T12:00:00Z' },
+              { id: 28, type: 'order',  amount: -300, balance: 1500, comment: null, admin_name: null, order_id: 42, created_at: '2025-05-15T09:30:00Z' },
+            ]
+          }, null, 2) },
           { code: 403, desc: 'Нет прав доступа' },
           { code: 404, desc: 'Пользователь не найден' },
         ]
@@ -494,6 +630,11 @@ const tags = ref([
 .docs-qs-step { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: #4A607A; line-height: 1.5; }
 .docs-qs-num { background: #0057B8; color: white; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
 .docs-qs-step code { background: #F0F4FA; padding: 1px 5px; border-radius: 4px; font-size: 11px; color: #0047A0; }
+.docs-roles { display: flex; flex-direction: column; gap: 8px; }
+.docs-role-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #4A607A; }
+.docs-role-badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; font-family: monospace; }
+.docs-role-badge.employee { background: #D4F4E2; color: #1A6B3A; }
+.docs-role-badge.admin { background: #FFF3DB; color: #7A5000; }
 
 /* Main */
 .docs-main { display: flex; flex-direction: column; gap: 24px; }
