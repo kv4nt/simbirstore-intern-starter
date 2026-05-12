@@ -6,6 +6,32 @@
 
 ---
 
+## 🔑 Demo-аккаунты
+
+Два пользователя создаются автоматически при `make migrate` (миграция `007_admin.sql` + `008_auth.sql`).
+
+| Роль | Email | Пароль | Баланс |
+|------|-------|--------|--------|
+| `employee` | `employee@simbirsoft.com` | `password123` | начисляется вручную |
+| `admin` | `admin@simbirsoft.com` | `password123` | `0` |
+
+**Быстрый старт через curl:**
+```bash
+# Войти как admin
+curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@simbirsoft.com","password":"password123"}' | jq .
+
+# Войти как employee
+curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"employee@simbirsoft.com","password":"password123"}' | jq .
+```
+
+> ⚠️ Пароли хранятся как bcrypt-хэш (cost=10). Менять напрямую в БД — только через `UPDATE users SET password_hash = crypt('newpass', gen_salt('bf'))`.
+
+---
+
 ## Содержание
 
 1. [Архитектура](#архитектура)
@@ -139,7 +165,7 @@ PostgreSQL (Docker) :5432
 ```json
 {
   "email": "admin@simbirsoft.com",
-  "password": "admin123"
+  "password": "password123"
 }
 ```
 
@@ -149,8 +175,8 @@ PostgreSQL (Docker) :5432
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "refresh_token": "dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4...",
   "user": {
-    "id": 1,
-    "full_name": "Алексей Тимлид",
+    "id": 2,
+    "full_name": "Demo Admin",
     "email": "admin@simbirsoft.com",
     "role": "admin",
     "coin_balance": 0,
