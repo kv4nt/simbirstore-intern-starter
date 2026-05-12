@@ -1,0 +1,1352 @@
+openapi: 3.0.3
+info:
+  title: SimbirStore API
+  description: |
+    REST API для корпоративного магазина SimbirStore.
+
+    ## Базовый URL
+    ```
+    http://localhost:5173/api/v1
+    ```
+
+    ## Аутентификация
+    Все защищённые эндпоинты требуют заголовок:
+    ```
+    Authorization: Bearer <access_token>
+    ```
+    Токен получается через `POST /api/v1/auth/login` или `POST /api/v1/auth/register`.
+
+    ### Жизненный цикл токенов
+    | Токен | TTL | Хранилище (фронт) |
+    |-------|-----|-------------------|
+    | `access_token` | 15 минут | `sessionStorage` |
+    | `refresh_token` | 30 дней | `sessionStorage` |
+
+    Фронт хранит оба токена в `sessionStorage`. При получении `401` от любого
+    защищённого эндпоинта **axios-interceptor автоматически** вызывает
+    `POST /auth/refresh` и повторяет упавший запрос с новым access-токеном.
+    Пока идёт refresh — все остальные параллельные запросы ставятся в очередь
+    и повторяются после получения нового токена.
+    Если refresh тоже вернул `401` (токен истёк) — пользователь разлогинивается.
+
+    ## Роли
+    | Роль | Описание |
+    |------|----------|
+    | `employee` | Обычный сотрудник (создаётся при регистрации) |
+    | `admin` | Администратор — доступны все `/admin/*` эндпоинты |
+
+    ## Варианты товара
+    Некоторые товары имеют варианты (размер, цвет и т.д.). Признак — поле `has_variants: true`.
+    При добавлении такого товара в корзину **обязательно** передавать `variant_id`.
+    Список вариантов возвращается внутри объекта товара в поле `variants`.
+
+    ## Формат ошибок
+    Все ошибки возвращаются в едином формате:
+    ```json
+    { "error": "код_ошибки", "details": "опциональное описание" }
+    ```
+
+    ## Коды ошибок
+    | Код | HTTP | Значение |
+    |-----|------|---------|
+    | `unauthorized` | 401 | Токен не передан, невалидный или истёк |
+    | `forbidden` | 403 | Нет прав (нужна роль admin) |
+    | `not_found` | 404 | Ресурс не найден |
+    | `email_taken` | 409 | Email уже зарегистрирован |
+    | `insufficient_balance` | 422 | Недостаточно монет на балансе |
+    | `bad_request` | 400 | Ошибка валидации тела запроса |
+    | `db_error` | 500 | Внутренняя ошибка БД |
+
+  version: "1.1.0"
+
+servers:
+  - url: http://localhost:5173/api/v1
+    description: Локальная разработка (Docker Compose)
+
+tags:
+  - name: Auth
+    description: Вход, регистрация и обновление токена
+  - name: Profile
+    description: Профиль текущего пользователя и история монет
+  - name: Products
+    description: Публичный каталог товаров
+  - name: Categories
+    description: Публичный список категорий
+  - name: Cart
+    description: Корзина текущего пользователя
+  - name: Orders
+    description: Заказы текущего пользователя
+  - name: Admin · Orders
+    description: Управление всеми заказами (роль admin)
+  - name: Admin · Products
+    description: CRUD товаров и вариантов (роль admin)
+  - name: Admin · Categories
+    description: CRUD категорий (роль admin)
+  - name: Admin · Users
+    description: Управление пользователями и монетами (роль admin)
+
+paths:
+
+  # AUTH
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Войти и получить пару JWT-токенов
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: admin@simbirsoft.com
+              password: secret123
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              example:
+                access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                refresh_token: dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4...
+                user:
+                  id: 1
+                  full_name: Алексей Тимлид
+                  email: admin@simbirsoft.com
+                  role: admin
+                  coin_balance: 0
+                  office: Ульяновск
+        '401':
+          description: Неверный email или пароль
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: unauthorized
+                details: invalid credentials
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Зарегистрировать нового пользователя
+      description: |
+        Создаёт нового пользователя с ролью `employee` и нулевым балансом монет.
+        При успехе сразу возвращает пару токенов — отдельный логин не требуется.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              email: ivan@simbirsoft.com
+              password: secret123
+              full_name: Иван Иванов
+              office: Казань
+      responses:
+        '201':
+          description: Пользователь создан, токены выданы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              example:
+                access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                refresh_token: dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4...
+                user:
+                  id: 10
+                  full_name: Иван Иванов
+                  email: ivan@simbirsoft.com
+                  role: employee
+                  coin_balance: 0
+                  office: Казань
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Email уже зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: email_taken
+                details: email already registered
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Обновить access-токен по refresh-токену
+      description: |
+        Вызывается **автоматически** axios-interceptором фронта при получении `401`.
+        Вручную вызывать не нужно.
+
+        Возвращает новую пару токенов. Старый refresh-токен после этого инвалидируется.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+                  description: Refresh-токен, полученный при логине или регистрации
+            example:
+              refresh_token: dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4...
+      responses:
+        '200':
+          description: Новая пара токенов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Refresh-токен истёк или невалидный — необходим повторный логин
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: unauthorized
+                details: refresh token expired
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Выйти (инвалидировать refresh-токен)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Успешный выход
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+
+  # PROFILE
+  /me:
+    get:
+      tags: [Profile]
+      summary: Получить свой профиль
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Данные текущего пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+              example:
+                id: 5
+                full_name: Иван Иванов
+                email: ivan@simbirsoft.com
+                role: employee
+                coin_balance: 1500
+                office: Казань
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /me/coins:
+    get:
+      tags: [Profile]
+      summary: История монет текущего пользователя
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Список транзакций
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CoinTransactionRow'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /me/stats:
+    get:
+      tags: [Profile]
+      summary: Статистика профиля
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Статистика пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileStats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # PRODUCTS
+  /products:
+    get:
+      tags: [Products]
+      summary: Список товаров каталога
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Список товаров
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Product'
+
+  /products/{id}:
+    get:
+      tags: [Products]
+      summary: Получить товар по ID (включая варианты)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Товар с вариантами
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # CATEGORIES
+  /categories:
+    get:
+      tags: [Categories]
+      summary: Список всех категорий
+      responses:
+        '200':
+          description: Список категорий
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Category'
+
+  # CART
+  /cart:
+    get:
+      tags: [Cart]
+      summary: Получить корзину текущего пользователя
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Текущая корзина
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /cart/items:
+    post:
+      tags: [Cart]
+      summary: Добавить товар в корзину
+      description: |
+        Если товар имеет has_variants=true, поле variant_id обязательно.
+        Для товаров без вариантов variant_id не передаётся.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartAddRequest'
+            examples:
+              no_variant:
+                summary: Товар без вариантов
+                value:
+                  product_id: 10
+                  quantity: 1
+              with_variant:
+                summary: Товар с вариантом
+                value:
+                  product_id: 42
+                  variant_id: 2
+                  quantity: 1
+      responses:
+        '200':
+          description: Обновлённая корзина
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '400':
+          description: variant_id обязателен для товара с вариантами
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /cart/items/{itemId}:
+    patch:
+      tags: [Cart]
+      summary: Изменить количество позиции
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                quantity:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: Обновлённая корзина
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+    delete:
+      tags: [Cart]
+      summary: Удалить позицию из корзины
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Обновлённая корзина
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+
+  # ORDERS
+  /orders/checkout:
+    post:
+      tags: [Orders]
+      summary: Оформить заказ
+      security:
+        - BearerAuth: []
+      responses:
+        '201':
+          description: Заказ создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+        '402':
+          description: Недостаточно монет
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /orders:
+    get:
+      tags: [Orders]
+      summary: История заказов текущего пользователя
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Список заказов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+
+  /orders/{id}:
+    get:
+      tags: [Orders]
+      summary: Получить заказ по ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Заказ с позициями
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ADMIN - ORDERS
+  /admin/orders:
+    get:
+      tags: [Admin · Orders]
+      summary: Список всех заказов
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [new, pending, confirmed, ready, done, completed, cancelled]
+      responses:
+        '200':
+          description: Список заказов
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminOrder'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/orders/{id}/items:
+    get:
+      tags: [Admin · Orders]
+      summary: Состав заказа (позиции)
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Состав заказа
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderItemsResponse'
+              example:
+                order_id: 42
+                total_coins: 1500
+                items:
+                  - item_id: 1
+                    product_id: 7
+                    product_name: Футболка SimbirSoft
+                    image_url: https://cdn.example.com/t-shirt.jpg
+                    color: Красный
+                    size: M
+                    quantity: 2
+                    price_coins: 500
+                  - item_id: 2
+                    product_id: 12
+                    product_name: Кружка
+                    quantity: 1
+                    price_coins: 500
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/orders/{id}/status:
+    patch:
+      tags: [Admin · Orders]
+      summary: Изменить статус заказа
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [new, pending, confirmed, ready, done, completed, cancelled]
+      responses:
+        '200':
+          description: Статус обновлён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order_id:
+                    type: integer
+                  new_status:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ADMIN - PRODUCTS
+  /admin/products:
+    post:
+      tags: [Admin · Products]
+      summary: Создать товар
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertProductRequest'
+      responses:
+        '201':
+          description: Товар создан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/products/{id}:
+    put:
+      tags: [Admin · Products]
+      summary: Обновить товар
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertProductRequest'
+      responses:
+        '200':
+          description: Обновлён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Admin · Products]
+      summary: Удалить товар (soft delete)
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Удалён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: integer
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/products/{id}/variants:
+    post:
+      tags: [Admin · Products]
+      summary: Добавить вариант к товару
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertVariantRequest'
+            example:
+              size: XL
+              color: белый
+              sku: HOODIE-XL-WHT
+              price_coins: 500
+              in_stock: true
+      responses:
+        '201':
+          description: Вариант создан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/products/{id}/variants/{variantId}:
+    put:
+      tags: [Admin · Products]
+      summary: Обновить вариант товара
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - name: variantId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertVariantRequest'
+      responses:
+        '200':
+          description: Вариант обновлён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Admin · Products]
+      summary: Удалить вариант товара
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - name: variantId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Вариант удалён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ADMIN - CATEGORIES
+  /admin/categories:
+    post:
+      tags: [Admin · Categories]
+      summary: Создать категорию
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertCategoryRequest'
+            example:
+              code: clothes
+              name: Одежда
+              icon: "\U0001F455"
+              description: Футболки, толстовки и другая одежда с символикой
+      responses:
+        '201':
+          description: Создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/categories/{id}:
+    put:
+      tags: [Admin · Categories]
+      summary: Обновить категорию
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertCategoryRequest'
+            example:
+              name: Одежда
+              icon: "\U0001F457"
+              description: Обновлённое описание категории
+      responses:
+        '200':
+          description: Обновлена
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+    delete:
+      tags: [Admin · Categories]
+      summary: Удалить категорию
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Удалена
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+
+  # ADMIN - USERS
+  /admin/users:
+    get:
+      tags: [Admin · Users]
+      summary: Список всех пользователей
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Список пользователей
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminUserRow'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/users/coins:
+    post:
+      tags: [Admin · Users]
+      summary: Начислить / списать монеты
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AwardCoinsRequest'
+      responses:
+        '200':
+          description: Операция выполнена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AwardCoinsResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/users/{id}/transactions:
+    get:
+      tags: [Admin · Users]
+      summary: История монет пользователя (для админа)
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Список транзакций
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CoinTransactionRow'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+
+  responses:
+    Unauthorized:
+      description: Требуется авторизация
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Нет прав (требуется роль admin)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    BadRequest:
+      description: Ошибка валидации
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+
+    RegisterRequest:
+      type: object
+      required: [email, password, full_name]
+      properties:
+        email:
+          type: string
+          format: email
+          example: ivan@simbirsoft.com
+        password:
+          type: string
+          minLength: 6
+          example: secret123
+        full_name:
+          type: string
+          minLength: 2
+          example: Иван Иванов
+        office:
+          type: string
+          nullable: true
+          example: Казань
+
+    AuthResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: JWT access-токен. TTL — 15 минут.
+        refresh_token:
+          type: string
+          description: Refresh-токен для обновления сессии. TTL — 30 дней.
+        user:
+          $ref: '#/components/schemas/UserProfile'
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+        full_name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [employee, admin]
+          example: employee
+        coin_balance:
+          type: integer
+        office:
+          type: string
+
+    AdminUserRow:
+      allOf:
+        - $ref: '#/components/schemas/UserProfile'
+
+    ProfileStats:
+      type: object
+      properties:
+        orders_count:
+          type: integer
+        coins_spent:
+          type: integer
+        coins_earned:
+          type: integer
+
+    CoinTransactionRow:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [manual, order, refund]
+        amount:
+          type: integer
+        balance:
+          type: integer
+        comment:
+          type: string
+        admin_name:
+          type: string
+          nullable: true
+        order_id:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+
+    AwardCoinsRequest:
+      type: object
+      required: [user_id, amount, reason]
+      properties:
+        user_id:
+          type: integer
+        amount:
+          type: integer
+        reason:
+          type: string
+          minLength: 3
+
+    AwardCoinsResponse:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        amount:
+          type: integer
+        new_balance:
+          type: integer
+        reason:
+          type: string
+
+    ProductVariant:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 2
+        size:
+          type: string
+          nullable: true
+          example: M
+        color:
+          type: string
+          nullable: true
+          example: белый
+        sku:
+          type: string
+          nullable: true
+          example: HOODIE-M-WHT
+        price_coins:
+          type: integer
+          nullable: true
+          description: Цена варианта. Если null — используется базовая цена товара.
+          example: 500
+        in_stock:
+          type: boolean
+          example: true
+
+    UpsertVariantRequest:
+      type: object
+      properties:
+        size:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+        sku:
+          type: string
+          nullable: true
+        price_coins:
+          type: integer
+          nullable: true
+        in_stock:
+          type: boolean
+          default: true
+
+    Product:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        category_id:
+          type: integer
+        category_name:
+          type: string
+        category_code:
+          type: string
+        price_coins:
+          type: integer
+        has_variants:
+          type: boolean
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductVariant'
+
+    UpsertProductRequest:
+      type: object
+      required: [name, category_id, price_coins]
+      properties:
+        name:
+          type: string
+          minLength: 2
+        description:
+          type: string
+        category_id:
+          type: integer
+        price_coins:
+          type: integer
+          minimum: 1
+        has_variants:
+          type: boolean
+          default: false
+        is_active:
+          type: boolean
+          default: true
+        image_url:
+          type: string
+          nullable: true
+
+    Category:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        code:
+          type: string
+          pattern: '^[a-z0-9-]+$'
+        icon:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+
+    UpsertCategoryRequest:
+      type: object
+      required: [name, code]
+      properties:
+        name:
+          type: string
+          minLength: 2
+        code:
+          type: string
+          pattern: '^[a-z0-9-]+$'
+          minLength: 2
+        icon:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+
+    OrderItem:
+      type: object
+      properties:
+        item_id:
+          type: integer
+        product_id:
+          type: integer
+        product_name:
+          type: string
+        image_url:
+          type: string
+          nullable: true
+        color:
+          type: string
+        size:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        price_coins:
+          type: integer
+
+    OrderItemsResponse:
+      type: object
+      properties:
+        order_id:
+          type: integer
+        total_coins:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+
+    Cart:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItem'
+        total_coins:
+          type: integer
+
+    CartItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        product_id:
+          type: integer
+        product_name:
+          type: string
+        variant_id:
+          type: integer
+          nullable: true
+        variant_label:
+          type: string
+          nullable: true
+          example: "M / белый"
+        price_coins:
+          type: integer
+        quantity:
+          type: integer
+
+    CartAddRequest:
+      type: object
+      required: [product_id]
+      properties:
+        product_id:
+          type: integer
+        variant_id:
+          type: integer
+          nullable: true
+        quantity:
+          type: integer
+          minimum: 1
+          default: 1
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+          enum: [new, pending, confirmed, ready, done, completed, cancelled]
+        total_coins:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    AdminOrder:
+      allOf:
+        - $ref: '#/components/schemas/Order'
+        - type: object
+          properties:
+            user_id:
+              type: integer
+            user_name:
+              type: string
+
+    OrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/Order'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/CartItem'
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        details:
+          type: string
+          nullable: true
