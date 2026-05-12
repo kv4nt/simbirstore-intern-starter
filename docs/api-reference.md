@@ -9,17 +9,18 @@
 ## Содержание
 
 1. [Архитектура](#архитектура)
-2. [Формат ошибок](#формат-ошибок)
-3. [Авторизация](#авторизация)
-4. [Каталог](#каталог)
-5. [Профиль](#профиль)
-6. [Корзина](#корзина)
-7. [Заказы](#заказы)
-8. [Админ: заказы](#админ-заказы)
-9. [Админ: товары](#админ-товары)
-10. [Админ: категории](#админ-категории)
-11. [Админ: пользователи](#админ-пользователи)
-12. [Таблица ошибок](#таблица-ошибок)
+2. [Роли пользователей](#роли-пользователей)
+3. [Формат ошибок](#формат-ошибок)
+4. [Авторизация](#авторизация)
+5. [Каталог](#каталог)
+6. [Профиль](#профиль)
+7. [Корзина](#корзина)
+8. [Заказы](#заказы)
+9. [Админ: заказы](#админ-заказы)
+10. [Админ: товары](#админ-товары)
+11. [Админ: категории](#админ-категории)
+12. [Админ: пользователи](#админ-пользователи)
+13. [Таблица ошибок](#таблица-ошибок)
 
 ---
 
@@ -42,6 +43,19 @@ PostgreSQL (Docker) :5432
 ```
 
 Все запросы фронтенда идут на `/api/v1/...`. Vite-прокси прозрачно перенаправляет их на твой локальный Go-сервер.
+
+---
+
+## Роли пользователей
+
+В системе существует **две роли**:
+
+| Роль | Значение в БД | Кто |
+|------|--------------|-----|
+| Сотрудник | `employee` | **По умолчанию** при регистрации. Может покупать товары. |
+| Администратор | `admin` | Назначается вручную в БД. Имеет доступ к `/admin/*` эндпоинтам. |
+
+> ⚠️ Фронт в `stores/auth.js` проверяет роль через `user.role === 'admin'`. Любое другое значение (в том числе `employee`) считается обычным пользователем.
 
 ---
 
@@ -96,13 +110,13 @@ PostgreSQL (Docker) :5432
 **Ответ `201`:**
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "refresh_token": "dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4...",
   "user": {
     "id": 5,
     "full_name": "Иван Иванов",
     "email": "ivan@simbirsoft.com",
-    "role": "user",
+    "role": "employee",
     "coin_balance": 0,
     "office": "Казань"
   }
@@ -132,7 +146,7 @@ PostgreSQL (Docker) :5432
 **Ответ `200`:**
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "refresh_token": "dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4...",
   "user": {
     "id": 1,
@@ -164,7 +178,7 @@ PostgreSQL (Docker) :5432
 **Ответ `200`:**
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "refresh_token": "bmV3IHJlZnJlc2ggdG9rZW4..."
 }
 ```
@@ -180,7 +194,7 @@ PostgreSQL (Docker) :5432
 
 Выход из системы.
 
-**Требует:** `Authorization: Bearer <token>`
+**Требует:** `Authorization: Bearer <access_token>`
 
 **Ответ `200`:**
 ```json
@@ -280,7 +294,7 @@ PostgreSQL (Docker) :5432
 
 ## Профиль
 
-> Все эндпоинты профиля требуют `Authorization: Bearer <token>`.
+> Все эндпоинты профиля требуют `Authorization: Bearer <access_token>`.
 
 ### GET /me
 
@@ -292,7 +306,7 @@ PostgreSQL (Docker) :5432
   "id": 5,
   "full_name": "Иван Иванов",
   "email": "ivan@simbirsoft.com",
-  "role": "user",
+  "role": "employee",
   "coin_balance": 1500,
   "office": "Казань"
 }
@@ -358,7 +372,7 @@ PostgreSQL (Docker) :5432
 
 ## Корзина
 
-> Все эндпоинты корзины требуют `Authorization: Bearer <token>`.
+> Все эндпоинты корзины требуют `Authorization: Bearer <access_token>`.
 
 Корзина создаётся **автоматически** при первом обращении — явного создания нет.
 
@@ -434,7 +448,7 @@ PostgreSQL (Docker) :5432
 
 ## Заказы
 
-> Все эндпоинты заказов требуют `Authorization: Bearer <token>`.
+> Все эндпоинты заказов требуют `Authorization: Bearer <access_token>`.
 
 ### POST /orders/checkout
 
@@ -501,7 +515,7 @@ PostgreSQL (Docker) :5432
 
 ## Админ: заказы
 
-> Требуют токен с ролью `admin`. Обычный пользователь получает `403`.
+> Требуют токен с ролью `admin`. Пользователь с ролью `employee` получает `403`.
 
 ### GET /admin/orders
 
@@ -510,7 +524,7 @@ PostgreSQL (Docker) :5432
 **Query-параметры:**
 
 | Параметр | Допустимые значения |
-|----------|--------------------|
+|----------|-------------------|
 | `status` | `new`, `pending`, `confirmed`, `ready`, `done`, `completed`, `cancelled` |
 
 **Ответ `200`:**
@@ -711,7 +725,7 @@ PostgreSQL (Docker) :5432
       "id": 5,
       "full_name": "Иван Иванов",
       "email": "ivan@simbirsoft.com",
-      "role": "user",
+      "role": "employee",
       "coin_balance": 1500,
       "office": "Казань"
     }
@@ -771,7 +785,7 @@ PostgreSQL (Docker) :5432
 | После логина — пустая страница | `401` | `unauthorized` | Просроченный access_token |
 | Корзина не загружается | `401` | `unauthorized` | Нет заголовка Authorization |
 | Кнопка «Оформить» неактивна | `402` | `insufficient_balance` | Мало монет |
-| Админ-панель выдаёт 403 | `403` | `forbidden` | Токен пользователя, а не admin |
+| Админ-панель выдаёт 403 | `403` | `forbidden` | Токен employee, а не admin |
 | Товар не отображается | `404` | `not_found` | `is_active = false` |
 | Повторная регистрация | `409` | `conflict` / `email_taken` | Email уже в БД |
 | Всё сломалось | `500` | `internal_error` | Смотри логи Go-сервера |
