@@ -1,6 +1,7 @@
 <template>
   <div style="min-height:100vh;background:var(--ss-bg);display:flex;align-items:center;justify-content:center;padding:24px">
     <div style="width:100%;max-width:400px">
+      <!-- Logo -->
       <div style="text-align:center;margin-bottom:32px">
         <div style="display:inline-flex;align-items:center;gap:10px;margin-bottom:8px">
           <div style="width:40px;height:40px;border-radius:10px;overflow:hidden">
@@ -14,21 +15,41 @@
         <div style="font-size:14px;color:#4A607A">Корпоративный магазин SimbirSoft</div>
       </div>
 
+      <!-- Card -->
       <div style="background:#fff;border-radius:16px;padding:32px;box-shadow:0 4px 24px rgba(0,87,184,.1)">
         <h2 style="font-size:20px;font-weight:700;margin-bottom:4px">Вход</h2>
         <p style="font-size:13px;color:#4A607A;margin-bottom:24px">Используй корпоративный аккаунт</p>
 
         <n-form @submit.prevent="handleLogin">
           <n-form-item label="Email" :feedback="errors.email" :validation-status="errors.email?'error':undefined">
-            <n-input v-model:value="form.email" type="email" placeholder="ivan@simbirsoft.com" size="large" :disabled="loading" @keyup.enter="handleLogin" />
+            <n-input
+              v-model:value="form.email"
+              type="email"
+              placeholder="ivan@simbirsoft.com"
+              size="large"
+              :disabled="loading"
+              @keyup.enter="handleLogin"
+            />
           </n-form-item>
           <n-form-item label="Пароль" :feedback="errors.password" :validation-status="errors.password?'error':undefined">
-            <n-input v-model:value="form.password" type="password" placeholder="••••••••" size="large" show-password-on="click" :disabled="loading" @keyup.enter="handleLogin" />
+            <n-input
+              v-model:value="form.password"
+              type="password"
+              placeholder="••••••••"
+              size="large"
+              show-password-on="click"
+              :disabled="loading"
+              @keyup.enter="handleLogin"
+            />
           </n-form-item>
 
           <n-alert v-if="serverError" type="error" style="margin-bottom:16px">{{ serverError }}</n-alert>
 
-          <n-button type="primary" size="large" block :loading="loading" @click="handleLogin">
+          <n-button
+            type="primary" size="large" block
+            :loading="loading"
+            @click="handleLogin"
+          >
             Войти
           </n-button>
         </n-form>
@@ -38,6 +59,7 @@
             Нет аккаунта? Зарегистрироваться →
           </n-button>
         </div>
+
         <div style="text-align:center;margin-top:8px">
           <n-button text @click="router.push('/')" style="color:#4A607A;font-size:13px">
             ← Вернуться в каталог
