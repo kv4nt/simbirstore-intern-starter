@@ -15,5 +15,7 @@ RUN npm run build
 
 FROM nginx:alpine AS prod
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+# nginx:alpine автоматически запускает envsubst через /docker-entrypoint.d/
+# и рендерит шаблоны из /etc/nginx/templates/ в /etc/nginx/conf.d/
+EXPOSE ${NGINX_PORT:-80}

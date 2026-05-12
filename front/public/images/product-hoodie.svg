@@ -1,0 +1,20 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'>
+  <rect width='400' height='400' fill='#ede9fe'/>
+  <!-- body -->
+  <rect x='115' y='180' width='170' height='145' rx='8' fill='#6d4fc2'/>
+  <!-- left sleeve -->
+  <polygon points='115,180 70,155 55,205 115,218' fill='#6d4fc2'/>
+  <!-- right sleeve -->
+  <polygon points='285,180 330,155 345,205 285,218' fill='#6d4fc2'/>
+  <!-- hood left -->
+  <path d='M155,180 Q145,130 175,115 Q200,105 200,115' fill='#5a3da8'/>
+  <!-- hood right -->
+  <path d='M245,180 Q255,130 225,115 Q200,105 200,115' fill='#5a3da8'/>
+  <!-- hood opening -->
+  <ellipse cx='200' cy='158' rx='22' ry='28' fill='#ede9fe'/>
+  <!-- kangaroo pocket -->
+  <rect x='155' y='255' width='90' height='40' rx='6' fill='#5a3da8'/>
+  <!-- zip line -->
+  <line x1='200' y1='180' x2='200' y2='255' stroke='#3d2880' stroke-width='3'/>
+  <text x='200' y='358' font-family='Arial,sans-serif' font-size='20' font-weight='bold' fill='#4a2f96' text-anchor='middle'>Худи</text>
+</svg>

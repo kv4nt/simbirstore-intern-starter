@@ -1,10 +1,10 @@
 server {
-    listen 80;
+    listen ${NGINX_PORT};
     location / {
         root /usr/share/nginx/html;
         try_files $uri $uri/ /index.html;
     }
     location /api/ {
-        proxy_pass http://backend:8080;
+        proxy_pass http://backend:${HTTP_PORT};
     }
 }
