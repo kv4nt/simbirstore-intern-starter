@@ -65,7 +65,6 @@ const visiblePages = computed(() => {
   }
   if (cur < total - 2) pages.push('...')
   pages.push(total)
-
   return pages
 })
 </script>

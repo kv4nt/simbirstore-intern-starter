@@ -28,14 +28,20 @@
 
           <n-alert v-if="serverError" type="error" style="margin-bottom:16px">{{ serverError }}</n-alert>
 
-          <n-button type="primary" size="large" block :loading="loading" @click="handleLogin">Войти</n-button>
+          <n-button type="primary" size="large" block :loading="loading" @click="handleLogin">
+            Войти
+          </n-button>
         </n-form>
 
         <div style="text-align:center;margin-top:12px">
-          <n-button text @click="router.push('/register')" style="color:#4A607A;font-size:13px">Нет аккаунта? Зарегистрироваться →</n-button>
+          <n-button text @click="router.push('/register')" style="color:#4A607A;font-size:13px">
+            Нет аккаунта? Зарегистрироваться →
+          </n-button>
         </div>
         <div style="text-align:center;margin-top:8px">
-          <n-button text @click="router.push('/')" style="color:#4A607A;font-size:13px">← Вернуться в каталог</n-button>
+          <n-button text @click="router.push('/')" style="color:#4A607A;font-size:13px">
+            ← Вернуться в каталог
+          </n-button>
         </div>
       </div>
     </div>

@@ -6,13 +6,16 @@ const ACCESS_KEY  = 'ss_token'
 const REFRESH_KEY = 'ss_refresh_token'
 
 export const useAuthStore = defineStore('auth', () => {
+  // ── state ──────────────────────────────────────────────────────────
   const token        = ref(sessionStorage.getItem(ACCESS_KEY)  ?? null)
   const refreshToken_ = ref(sessionStorage.getItem(REFRESH_KEY) ?? null)
   const user         = ref(null)
 
+  // ── getters ────────────────────────────────────────────────────────
   const isLoggedIn = computed(() => !!token.value)
   const isAdmin    = computed(() => user.value?.role === 'admin')
 
+  // ── helpers ────────────────────────────────────────────────────────
   function _applyTokens(access, refresh) {
     token.value = access
     if (access) {
@@ -38,6 +41,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // ── actions ────────────────────────────────────────────────────────
   async function login(email, password) {
     const { data } = await api.post('/auth/login', { email, password })
     _applyTokens(data.access_token, data.refresh_token)
