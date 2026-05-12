@@ -1,4 +1,4 @@
-# SimbirStore — Стартовый каркас для стажёров
+# SimbirStore — Стартовый каркас
 
 Добро пожаловать! Этот репозиторий — твоя точка старта. Здесь уже настроен **фронтенд** (Vue 3) и **база данных** (PostgreSQL), запускаемые через Docker. Твоя задача — написать **бэкенд на Go**.
 
@@ -24,10 +24,10 @@ cd simbirstore-intern-starter
 ### 2. Скопируй env-файлы
 
 ```bash
-# Переменные для твоего Go-бэкенда
+# Переменные для Go-бэкенда
 cp .env.example .env
 
-# Переменные для фронтенда (адрес твоего бэкенда)
+# Переменные для фронтенда (адрес бэкенда)
 cp front/.env.example front/.env
 ```
 
@@ -50,14 +50,14 @@ docker-compose up -d
 go run ./cmd/app
 ```
 
-Фронт автоматически проксирует все запросы `/api/*` на твой локальный бэкенд.
+Фронт автоматически проксирует все запросы `/api/*` на локальный бэкенд.
 
 ---
 
 ## Схема работы
 
 ```
-Docker:  PostgreSQL  :5432  ←──────────────────┐
+Docker:  PostgreSQL  :5432  ←──────────────────┤
 Docker:  Frontend    :5173                      │ DATABASE_URL
               │                                 │
               │ proxy /api/*                    │
@@ -80,6 +80,7 @@ simbirstore-intern-starter/
 │   ├── .env.example        # Шаблон env для фронта
 │   └── Dockerfile
 ├── docs/
+│   ├── swagger.yaml        # OpenAPI-спецификация
 │   └── api-reference.md    # Документация по API (читать обязательно!)
 ├── docker-compose.yml      # PostgreSQL + Frontend
 ├── .env.example            # Шаблон env для Go-бэкенда
@@ -98,12 +99,15 @@ simbirstore-intern-starter/
 | `HTTP_PORT` | Порт Go-сервера | `8080` |
 | `DATABASE_URL` | Строка подключения к PostgreSQL | `postgres://postgres:postgres@localhost:5432/simbirstore?sslmode=disable` |
 | `JWT_SECRET` | Секрет для подписи JWT (мин. 32 символа) | `change-this-in-production-min-32-chars` |
+| `NGINX_PORT` | Порт nginx в prod-режиме | `80` |
 
 ### `front/.env` (для фронтенда)
 
 | Переменная | Описание | Пример |
 |------------|----------|--------|
-| `VITE_API_TARGET` | Адрес твоего Go-бэкенда | `http://localhost:8080` |
+| `VITE_API_TARGET` | Адрес Go-бэкенда | `http://localhost:8080` |
+| `VITE_PORT` | Порт Vite dev-сервера | `5173` |
+| `NGINX_PORT` | Порт nginx в prod-режиме | `80` |
 
 ---
 
