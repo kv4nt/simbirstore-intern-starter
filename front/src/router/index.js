@@ -69,7 +69,7 @@ const routes = [
     component: () => import('@/views/ReturnsView.vue')
   },
   {
-    path: '/docs',
+    path: '/api-docs',
     name: 'Docs',
     component: () => import('@/views/DocsView.vue')
   }
