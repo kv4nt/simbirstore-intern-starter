@@ -25,7 +25,7 @@ services:
       - ./front:/app
       - /app/node_modules
     ports:
-      - "5173:5173"
+      - "${VITE_PORT:-5173}:${VITE_PORT:-5173}"
 
 volumes:
   pg_data:
