@@ -102,12 +102,10 @@
             <div>
               <div class="ss-footer-heading">&#1056;&#1072;&#1079;&#1088;&#1072;&#1073;&#1086;&#1090;&#1095;&#1080;&#1082;&#1072;&#1084;</div>
               <div class="ss-footer-links">
-                <a
+                <span
                   class="ss-footer-link"
-                  href="/api/docs"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style="color:inherit;text-decoration:none"
+                  @click="router.push('/api-docs')"
+                  style="cursor:pointer"
                 >
                   <span style="display:inline-flex;align-items:center;gap:6px">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0">
@@ -119,22 +117,7 @@
                     </svg>
                     API &#1076;&#1086;&#1082;&#1091;&#1084;&#1077;&#1085;&#1090;&#1072;&#1094;&#1080;&#1103;
                   </span>
-                </a>
-                <a
-                  class="ss-footer-link"
-                  href="/api/docs/swagger.yaml"
-                  download="swagger.yaml"
-                  style="color:inherit;text-decoration:none"
-                >
-                  <span style="display:inline-flex;align-items:center;gap:6px">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0">
-                      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                      <polyline points="7 10 12 15 17 10"/>
-                      <line x1="12" y1="15" x2="12" y2="3"/>
-                    </svg>
-                    &#1057;&#1082;&#1072;&#1095;&#1072;&#1090;&#1100; OpenAPI YAML
-                  </span>
-                </a>
+                </span>
               </div>
             </div>
           </div>
