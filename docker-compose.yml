@@ -22,8 +22,11 @@ services:
       target: dev
     env_file: ./front/.env
     volumes:
-      - ./front:/app
-      - /app/node_modules
+      # Монтируем только исходники для hot-reload.
+      # node_modules берётся из образа (npm install внутри Dockerfile).
+      - ./front/src:/app/src
+      - ./front/index.html:/app/index.html
+      - ./front/vite.config.js:/app/vite.config.js
     ports:
       - "${VITE_PORT:-5173}:${VITE_PORT:-5173}"
 
