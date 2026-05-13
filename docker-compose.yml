@@ -18,8 +18,9 @@ services:
       target: dev
     env_file: ./front/.env
     environment:
-      # Внутри Docker-сети обращаемся к сервису по имени из BACKEND_HOST
-      VITE_API_TARGET: "http://${BACKEND_HOST:-backend}:${HTTP_PORT:-8080}"
+      # Переопределяем VITE_API_TARGET: внутри Docker-сети бэкенд доступен
+      # по имени сервиса "backend", а не через localhost
+      VITE_API_TARGET: "http://backend:${HTTP_PORT:-8080}"
     volumes:
       - ./front/src:/app/src
       - ./front/index.html:/app/index.html
