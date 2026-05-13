@@ -118,6 +118,7 @@
                     API &#1076;&#1086;&#1082;&#1091;&#1084;&#1077;&#1085;&#1090;&#1072;&#1094;&#1080;&#1103;
                   </span>
                 </span>
+                <PingWidget />
               </div>
             </div>
           </div>
@@ -135,6 +136,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { NLayout, NButton, NConfigProvider, NMessageProvider } from 'naive-ui'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
+import PingWidget from "./PingWidget.vue";
 
 const router = useRouter()
 const route = useRoute()
